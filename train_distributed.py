@@ -24,13 +24,12 @@ from palm_rlhf_pytorch import PaLM
 
 class CFG:
     BATCH_SIZE: int = 4
-    GRADIENT_ACCUMULATE_EVERY: int = 32
+    GRADIENT_ACCUMULATE_EVERY: int = 4
     SEED: int = 42
     LEARNING_RATE: float = 3e-4
     SEQ_LEN: int = 8192
     NUM_CPU: int = multiprocessing.cpu_count()
     MIXED_PRECISION: str = "bf16"
-    NUM_WARMUP_STEPS: int = 1000
     RESUME_FROM_CHECKPOINT: str = None
     CHECKPOINTING_STEPS: int = 1000
     OUTPUT_DIR: str = "palm"
@@ -51,10 +50,11 @@ def print_num_params(model, accelerator: Accelerator):
 
 def build_dataloaders(accelerator: Accelerator):
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    train_dataset = load_dataset("c4", "en", split="train")
-    val_dataset = load_dataset("c4", "en", split="validation")
+    train_dataset = load_dataset("EleutherAI/the_pile", "all", split="train")
+    val_dataset = load_dataset("EleutherAI/the_pile", "all", split="validation")
 
-    remove_column_name = ["url", "timestamp"]
+    #remove_column_name = ["url", "timestamp"]
+    remove_column_name = ["meta"]
 
     train_dataset = train_dataset.remove_columns(remove_column_name)
     val_dataset = val_dataset.remove_columns(remove_column_name)
@@ -148,7 +148,6 @@ def main():
             "learning_rate": CFG.LEARNING_RATE,
             "seq_len": CFG.SEQ_LEN,
             "mixed_precision": CFG.MIXED_PRECISION,
-            "num_warmup_steps": CFG.NUM_WARMUP_STEPS,
             "validation_steps": CFG.VALIDATION_STEPS,
         },
         init_kwargs={"wandb": {"entity": CFG.ENTITY_NAME}},
@@ -163,7 +162,7 @@ def main():
     # instantiate palm
 
     model = PaLM(
-        num_tokens=50257, dim=1024, depth=24, dim_head=128, heads=16, flash_attn=True
+        num_tokens=50304, dim=1024, depth=24, dim_head=128, heads=8, flash_attn=True
     )
 
     model = model.to(accelerator.device)
@@ -176,7 +175,12 @@ def main():
 
     # optimizer
 
-    optim = AdamW(model.parameters(), lr=CFG.LEARNING_RATE)
+    optim = AdamW(
+        model.parameters(), 
+        lr=CFG.LEARNING_RATE,
+        betas=(0.9, 0.95),
+        weight_decay=0.01,
+    )
 
     # Determine number of training steps
 
@@ -184,10 +188,13 @@ def main():
     accelerator.print(f"Max train steps: {max_train_steps}")
 
     # lr scheduler
+    # We cant decide on an actual number
+    NUM_WARMUP_STEPS = int(max_train_steps * 0.069420)
+    accelerator.print(f"Num warmup steps: {NUM_WARMUP_STEPS}")
 
     lr_scheduler = get_linear_schedule_with_warmup(
         optimizer=optim,
-        num_warmup_steps=CFG.NUM_WARMUP_STEPS * CFG.GRADIENT_ACCUMULATE_EVERY,
+        num_warmup_steps=NUM_WARMUP_STEPS * CFG.GRADIENT_ACCUMULATE_EVERY,
         num_training_steps=max_train_steps * CFG.GRADIENT_ACCUMULATE_EVERY,
     )
 
