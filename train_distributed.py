@@ -135,6 +135,7 @@ def main():
 
     accelerator = Accelerator(
         gradient_accumulation_steps=CFG.GRADIENT_ACCUMULATE_EVERY,
+        mixed_precision="fp16",
         log_with="wandb",
     )
 
@@ -244,7 +245,6 @@ def main():
     # training
 
     model.train()
-
     for step, batch in enumerate(train_loader):
         with accelerator.accumulate(model):
             inputs = batch['input_ids'].to(accelerator.device)
@@ -252,7 +252,9 @@ def main():
             accelerator.backward(loss)
 
             accelerator.log({"loss": loss.item()}, step=step)
-            accelerator.clip_grad_norm_(model.parameters(), 1.0)
+
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(model.parameters(), 1.0)
 
             optim.step()
             lr_scheduler.step()
