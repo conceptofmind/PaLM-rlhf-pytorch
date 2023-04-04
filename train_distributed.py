@@ -277,7 +277,8 @@ def main():
             model.eval()
             with torch.no_grad():
                 for batch in val_loader:
-                    loss = model(batch, return_loss=True)
+                    inputs = batch['input_ids'].to(accelerator.device)
+                    loss = model(inputs, return_loss=True)
                     accelerator.log({"val_loss": loss.item()}, step=step)
 
         if completed_steps >= max_train_steps:
