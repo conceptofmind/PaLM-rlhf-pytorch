@@ -24,12 +24,11 @@ from palm_rlhf_pytorch import PaLM
 
 class CFG:
     BATCH_SIZE: int = 4
-    GRADIENT_ACCUMULATE_EVERY: int = 4
+    GRADIENT_ACCUMULATE_EVERY: int = 1
     SEED: int = 42
     LEARNING_RATE: float = 3e-4
     SEQ_LEN: int = 8192
     NUM_CPU: int = multiprocessing.cpu_count()
-    MIXED_PRECISION: str = "bf16"
     RESUME_FROM_CHECKPOINT: str = None
     CHECKPOINTING_STEPS: int = 1000
     OUTPUT_DIR: str = "palm"
@@ -50,8 +49,8 @@ def print_num_params(model, accelerator: Accelerator):
 
 def build_dataloaders(accelerator: Accelerator):
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    train_dataset = load_dataset("EleutherAI/the_pile", "all", split="train")
-    val_dataset = load_dataset("EleutherAI/the_pile", "all", split="validation")
+    train_dataset = load_dataset("EleutherAI/the_pile", "enron_emails", split="train")
+    val_dataset = load_dataset("EleutherAI/the_pile", "enron_emails", split="train")
 
     #remove_column_name = ["url", "timestamp"]
     remove_column_name = ["meta"]
@@ -136,7 +135,6 @@ def main():
 
     accelerator = Accelerator(
         gradient_accumulation_steps=CFG.GRADIENT_ACCUMULATE_EVERY,
-        mixed_precision=CFG.MIXED_PRECISION,
         log_with="wandb",
     )
 
@@ -147,7 +145,6 @@ def main():
             "gradient_accumulate_every": CFG.GRADIENT_ACCUMULATE_EVERY,
             "learning_rate": CFG.LEARNING_RATE,
             "seq_len": CFG.SEQ_LEN,
-            "mixed_precision": CFG.MIXED_PRECISION,
             "validation_steps": CFG.VALIDATION_STEPS,
         },
         init_kwargs={"wandb": {"entity": CFG.ENTITY_NAME}},
@@ -250,7 +247,8 @@ def main():
 
     for step, batch in enumerate(train_loader):
         with accelerator.accumulate(model):
-            loss = model(batch, return_loss=True)
+            inputs = batch['input_ids'].to(accelerator.device)
+            loss = model(inputs, return_loss=True)
             accelerator.backward(loss)
 
             accelerator.log({"loss": loss.item()}, step=step)
